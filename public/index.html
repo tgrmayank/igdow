@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#d62976">
+<title>Instagram Video Downloader</title>
+<style>
+  :root{--bg:#fafafa;--card:#fff;--text:#1a1a1a;--muted:#6b6b6b;--border:#e2e2e2;--accent:#d62976;--accent2:#fa7e1e;--err:#c62828}
+  @media (prefers-color-scheme:dark){:root{--bg:#121212;--card:#1d1d1d;--text:#f2f2f2;--muted:#9a9a9a;--border:#333;--err:#ff6b6b}}
+  *{box-sizing:border-box}
+  body{margin:0;padding-bottom:env(safe-area-inset-bottom);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;justify-content:center;padding:20px}
+  .wrap{width:100%;max-width:560px}
+  h1{font-size:1.5rem;margin:8px 0 4px;background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  p.sub{color:var(--muted);margin:0 0 18px;font-size:.9rem}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:14px}
+  label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:6px}
+  input{width:100%;padding:12px;font-size:16px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:1rem}
+  input:focus{outline:2px solid var(--accent)}
+  .row{display:flex;gap:8px}
+  button{border:0;border-radius:10px;padding:12px 18px;font-size:1rem;font-weight:600;color:#fff;background:linear-gradient(90deg,var(--accent),var(--accent2));cursor:pointer}
+  button:disabled{opacity:.6;cursor:wait}
+  button.ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+  .full{width:100%;margin-top:12px}
+  details summary{cursor:pointer;color:var(--muted);font-size:.85rem}
+  details .in{margin-top:10px}
+  #status{font-size:.9rem;margin:6px 0 12px;min-height:1.2em}
+  #status.err{color:var(--err)}
+  .item video,.item img{width:100%;border-radius:10px;background:#000;max-height:420px;object-fit:contain}
+  .item .meta{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px}
+  .item .meta span{font-size:.85rem;color:var(--muted)}
+  .item a.dl,.item button.dl{display:inline-block;text-decoration:none;padding:10px 16px;border-radius:10px;font-weight:600;color:#fff;background:linear-gradient(90deg,var(--accent),var(--accent2));font-size:.95rem;border:0;cursor:pointer}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Instagram Video Downloader</h1>
+  <p class="sub">Reel / post ka link paste karo, video download karo.</p>
+
+  <div class="card">
+    <label for="url">Instagram link</label>
+    <div class="row">
+      <input id="url" type="url" placeholder="https://www.instagram.com/reel/..." autocomplete="off">
+      <button class="ghost" id="paste" type="button" title="Paste">Paste</button>
+    </div>
+    <button class="full" id="go" type="button">Get Video</button>
+
+    
+  </div>
+
+  <div id="status"></div>
+  <div id="results"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const urlEl = $('url'), statusEl = $('status'), resEl = $('results'), goBtn = $('go');
+
+const getBase = () => '/api';
+
+function setStatus(msg, err){ statusEl.textContent = msg || ''; statusEl.className = err ? 'err' : ''; }
+
+$('paste').onclick = async () => {
+  try { urlEl.value = (await navigator.clipboard.readText()).trim(); }
+  catch(e){ setStatus('Clipboard allow nahi hua, manually paste karo.', true); }
+};
+urlEl.addEventListener('keydown', e => { if (e.key === 'Enter') goBtn.click(); });
+
+// API ka response kisi bhi shape me ho sakta hai, isliye saare media links dhoondhte hain
+function extractMedia(data){
+  const out = [], seen = new Set();
+  (function walk(v, key, parent){
+    if (v == null) return;
+    if (typeof v === 'string'){
+      if (/^https?:\/\//i.test(v) && !seen.has(v)){
+        const k = (key || '').toLowerCase();
+        if (/thumb|preview|cover|poster/.test(k)) return;
+        seen.add(v);
+        out.push({
+          url: v,
+          label: (parent && (parent.resolution || parent.quality || parent.label)) || '',
+          thumb: parent && (parent.thumbnail || parent.thumb || parent.preview) || ''
+        });
+      }
+      return;
+    }
+    if (Array.isArray(v)) return v.forEach(x => walk(x, key, parent));
+    if (typeof v === 'object') Object.entries(v).forEach(([k, x]) => walk(x, k, v));
+  })(data);
+  return out;
+}
+
+function render(items){
+  resEl.innerHTML = '';
+  items.forEach((m, i) => {
+    const isImg = /\.(jpe?g|png|webp)(\?|$)/i.test(m.url);
+    const card = document.createElement('div');
+    card.className = 'card item';
+    const media = isImg
+      ? Object.assign(document.createElement('img'), {src: m.url, referrerPolicy:'no-referrer'})
+      : Object.assign(document.createElement('video'), {src: m.url, controls:true, playsInline:true, preload:'metadata', poster: m.thumb || ''});
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const label = document.createElement('span');
+    label.textContent = (isImg ? 'Photo ' : 'Video ') + (items.length > 1 ? (i+1) : '') + (m.label ? ' · ' + m.label : '');
+    const btn = document.createElement('button');
+    btn.className = 'dl'; btn.textContent = 'Download';
+    btn.onclick = () => download(m.url, isImg ? 'jpg' : 'mp4', btn);
+    meta.append(label, btn);
+    card.append(media, meta);
+    resEl.append(card);
+  });
+}
+
+function download(url, ext, btn){
+  const name = 'instagram_' + Date.now() + '.' + ext;
+  const a = document.createElement('a');
+  a.href = getBase() + '/download?url=' + encodeURIComponent(url) + '&name=' + name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+goBtn.onclick = async () => {
+  const link = urlEl.value.trim();
+  const base = getBase();
+  if (!/instagram\.com\//i.test(link)) return setStatus('Sahi Instagram link daalo.', true);
+  goBtn.disabled = true; resEl.innerHTML = ''; setStatus('Video dhoondh rahe hain...');
+  try {
+    const r = await fetch(base + '/igdl?url=' + encodeURIComponent(link));
+    const text = await r.text();
+    let data; try { data = JSON.parse(text); } catch(e){ data = text; }
+    if (!r.ok) throw new Error((data && data.error) || 'Server error ' + r.status);
+    const items = extractMedia(data);
+    if (!items.length) throw new Error('Koi video nahi mila. Post public hona chahiye.');
+    setStatus(items.length + ' file mili.');
+    render(items);
+  } catch(e){
+    const netFail = e instanceof TypeError;
+    setStatus(netFail
+      ? 'Connect nahi hua. Internet check karo aur phir try karo.'
+      : e.message, true);
+  } finally { goBtn.disabled = false; }
+};
+</script>
+</body>
+</html>
